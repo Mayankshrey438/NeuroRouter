@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>NeuroRouter | Providers &amp; Routing</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex">
+
+<aside class="sidebar fixed left-0 top-0 h-full bg-surface-container-low border-r border-outline-variant flex flex-col p-4 gap-1 z-50 custom-scrollbar" style="overflow-y:auto">
+  <div class="mb-6 px-2">
+    <h1 class="text-primary font-bold" style="font-size:22px">NeuroRouter</h1>
+    <p class="font-body-sm text-on-surface-variant" style="opacity:.7">AI Gateway Platform</p>
+  </div>
+  <nav id="nr-nav" class="flex-1 flex flex-col gap-1"></nav>
+  <div class="pt-4 border-t border-outline-variant mt-4 px-2">
+    <div id="nr-conn-status" class="flex items-center gap-2 font-body-sm py-2"></div>
+  </div>
+</aside>
+
+<main class="main-with-sidebar flex-1 min-h-screen">
+  <header class="h-14 border-b border-outline-variant flex items-center justify-between px-6 bg-surface-dim sticky top-0 z-40">
+    <h2 class="font-title">Providers &amp; Routing Strategy</h2>
+    <div class="flex items-center gap-2">
+      <span class="font-body-sm text-on-surface-variant">Admin token</span>
+      <input id="admin-token-input" type="password" class="field-input" style="width:200px;padding:6px 10px" placeholder="X-Admin-Token" />
+    </div>
+  </header>
+
+  <div class="p-6 space-y-8">
+    <section>
+      <h3 class="font-label-caps text-on-surface-variant mb-3">Fallback Chains by Complexity Tier</h3>
+      <div id="tier-chains" class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))"></div>
+    </section>
+
+    <section>
+      <h3 class="font-label-caps text-on-surface-variant mb-3">Provider Control</h3>
+      <p class="font-body-sm text-on-surface-variant mb-4" style="max-width:640px">
+        Disabling a provider removes it from every routing chain immediately (the router skips straight to the
+        next fallback hop). This is separate from the circuit breaker, which trips automatically after real
+        failures — you can also force-reset a tripped breaker here.
+      </p>
+      <div id="provider-cards" class="grid gap-4" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))"></div>
+    </section>
+  </div>
+</main>
+
+<script src="assets/api.js"></script>
+<script>
+nrRenderNav('providers');
+
+const adminInput = document.getElementById('admin-token-input');
+adminInput.value = NR.adminToken();
+adminInput.addEventListener('change', () => NR.setAdminToken(adminInput.value));
+
+async function load() {
+  try {
+    const models = await NR.getModels();
+
+    document.getElementById('tier-chains').innerHTML = Object.entries(models.tiers).map(([tier, chain]) => `
+      <div class="glass-card rounded-xl p-4">
+        <div class="font-label-caps text-on-surface-variant mb-3">${tier.toUpperCase()} TIER</div>
+        <div class="flex flex-wrap items-center gap-2">
+          ${chain.map((hop, i) => `
+            ${i > 0 ? '<span class="material-symbols-outlined text-outline" style="font-size:16px">arrow_forward</span>' : ''}
+            <span class="bg-surface-container-high border border-outline-variant rounded-lg px-3 py-1.5 font-code-sm">
+              ${hop.provider}<span class="text-outline">/</span>${hop.model}
+            </span>`).join('')}
+        </div>
+      </div>`).join('');
+
+    document.getElementById('provider-cards').innerHTML = Object.values(models.circuit_breakers).map(b => `
+      <div class="glass-card rounded-xl p-5">
+        <div class="flex justify-between items-start mb-3">
+          <div>
+            <div class="font-title" style="font-size:16px">${b.provider}</div>
+            <div class="font-code-sm text-outline mt-1">${b.recent_failures} recent failures</div>
+          </div>
+          <span class="pill ${b.disabled_by_admin ? 'disabled' : b.state}">${b.disabled_by_admin ? 'disabled' : b.state.replace('_', ' ')}</span>
+        </div>
+        <div class="flex gap-2 mt-4">
+          ${b.disabled_by_admin
+            ? `<button class="btn-secondary" style="flex:1" onclick="enableProvider('${b.provider}')">Enable</button>`
+            : `<button class="btn-danger" style="flex:1" onclick="disableProvider('${b.provider}')">Disable</button>`}
+          <button class="btn-secondary" style="flex:1" onclick="resetCircuit('${b.provider}')">Reset Circuit</button>
+        </div>
+      </div>`).join('') || '<p class="font-body-sm text-on-surface-variant">No providers configured.</p>';
+  } catch (e) {
+    nrHandleError(e, 'Could not load providers');
+  }
+}
+
+async function disableProvider(name) {
+  try { await NR.disableProvider(name); nrToast(`${name} disabled`, 'success'); load(); }
+  catch (e) { nrHandleError(e, 'Failed to disable provider (check admin token)'); }
+}
+async function enableProvider(name) {
+  try { await NR.enableProvider(name); nrToast(`${name} enabled`, 'success'); load(); }
+  catch (e) { nrHandleError(e, 'Failed to enable provider (check admin token)'); }
+}
+async function resetCircuit(name) {
+  try { await NR.resetCircuit(name); nrToast(`${name} circuit reset to closed`, 'success'); load(); }
+  catch (e) { nrHandleError(e, 'Failed to reset circuit (check admin token)'); }
+}
+
+load();
+setInterval(load, 6000);
+</script>
+</body>
+</html>

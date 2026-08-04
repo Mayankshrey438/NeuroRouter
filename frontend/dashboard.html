@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>NeuroRouter | Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex">
+
+<aside class="sidebar fixed left-0 top-0 h-full bg-surface-container-low border-r border-outline-variant flex flex-col p-4 gap-1 z-50 custom-scrollbar" style="overflow-y:auto">
+  <div class="mb-6 px-2">
+    <h1 class="text-primary font-bold" style="font-size:22px">NeuroRouter</h1>
+    <p class="font-body-sm text-on-surface-variant" style="opacity:.7">AI Gateway Platform</p>
+  </div>
+  <nav id="nr-nav" class="flex-1 flex flex-col gap-1"></nav>
+  <div class="pt-4 border-t border-outline-variant mt-4 px-2">
+    <div id="nr-conn-status" class="flex items-center gap-2 font-body-sm py-2"></div>
+  </div>
+</aside>
+
+<main class="main-with-sidebar flex-1 min-h-screen">
+  <header class="h-14 border-b border-outline-variant flex items-center justify-between px-6 bg-surface-dim sticky top-0 z-40">
+    <h2 class="font-title">Analytics Dashboard</h2>
+    <span class="font-body-sm text-on-surface-variant">Auto-refreshes every 4s</span>
+  </header>
+
+  <div class="p-6 space-y-8">
+    <section>
+      <h3 class="font-label-caps text-on-surface-variant mb-3">Overview</h3>
+      <div id="overview-cards" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+    </section>
+
+    <section>
+      <h3 class="font-label-caps text-on-surface-variant mb-3">Cost</h3>
+      <div id="cost-cards" class="grid gap-3" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))"></div>
+    </section>
+
+    <section class="grid gap-6" style="grid-template-columns:2fr 1fr">
+      <div class="glass-card rounded-xl overflow-hidden">
+        <div class="p-4 border-b border-outline-variant flex justify-between items-center">
+          <h3 class="font-title" style="font-size:15px">Recent Requests</h3>
+          <a href="monitor.html" class="text-primary font-body-sm hover:underline">View live monitor →</a>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left font-body-sm">
+            <thead class="bg-surface-container-low font-label-caps text-on-surface-variant">
+              <tr>
+                <th class="px-4 py-3 border-b border-outline-variant">TRACE ID</th>
+                <th class="px-4 py-3 border-b border-outline-variant">PROVIDER/MODEL</th>
+                <th class="px-4 py-3 border-b border-outline-variant">LATENCY</th>
+                <th class="px-4 py-3 border-b border-outline-variant">CACHE</th>
+                <th class="px-4 py-3 border-b border-outline-variant">COST</th>
+              </tr>
+            </thead>
+            <tbody id="recent-requests"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="glass-card rounded-xl p-5">
+        <h3 class="font-title mb-4" style="font-size:15px">Circuit Breakers</h3>
+        <div id="breaker-list" class="space-y-3"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="assets/api.js"></script>
+<script>
+nrRenderNav('dashboard');
+
+const fmtUsd = n => '$' + Number(n).toFixed(6);
+const fmtPct = n => (Number(n) * 100).toFixed(1) + '%';
+
+function card(label, value, cls = '') {
+  return `<div class="glass-card rounded-xl p-4">
+    <div class="font-label-caps text-on-surface-variant">${label}</div>
+    <div class="font-display ${cls}" style="font-size:24px;margin-top:4px">${value}</div>
+  </div>`;
+}
+
+async function refresh() {
+  try {
+    const [stats, models, logsResp] = await Promise.all([
+      NR.getStats(), NR.getModels(), NR.getLogs({ limit: 8, type: 'request' }),
+    ]);
+
+    document.getElementById('overview-cards').innerHTML = [
+      card('Total Requests', stats.total_requests, 'text-primary'),
+      card('Cache Hit Rate', fmtPct(stats.cache_hit_rate), 'text-secondary'),
+      card('Exact Hits', stats.cache_hits_exact),
+      card('Semantic Hits', stats.cache_hits_semantic),
+      card('Fallbacks', stats.fallbacks_triggered),
+      card('Circuit Trips', stats.circuit_trips),
+    ].join('');
+
+    document.getElementById('cost-cards').innerHTML = [
+      card('Total Spend (est.)', fmtUsd(stats.total_cost_usd)),
+      card('Estimated Savings', fmtUsd(stats.estimated_savings_usd), 'text-secondary'),
+      card('Avg Cost / Request', fmtUsd(stats.avg_cost_per_request_usd)),
+      card('Total Tokens', (stats.total_prompt_tokens + stats.total_completion_tokens).toLocaleString()),
+    ].join('');
+
+    document.getElementById('breaker-list').innerHTML = Object.values(models.circuit_breakers).map(b => `
+      <div class="flex justify-between items-center p-3 bg-surface-container-high rounded-lg">
+        <div>
+          <div class="font-body-sm font-bold">${b.provider}</div>
+          <div class="font-code-sm text-outline">${b.recent_failures} recent failures</div>
+        </div>
+        <span class="pill ${b.disabled_by_admin ? 'disabled' : b.state}">${b.disabled_by_admin ? 'disabled' : b.state.replace('_', ' ')}</span>
+      </div>`).join('') || '<p class="font-body-sm text-on-surface-variant">No providers configured.</p>';
+
+    document.getElementById('recent-requests').innerHTML = logsResp.logs.map(l => `
+      <tr class="hover:bg-surface-container-high transition-colors cursor-pointer" onclick="location.href='logs.html?trace=${encodeURIComponent(l.id)}'">
+        <td class="px-4 py-3 font-code-sm text-primary border-b border-outline-variant/40">${l.id}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">${l.provider || '—'}/${l.model || '—'}</td>
+        <td class="px-4 py-3 font-bold border-b border-outline-variant/40">${l.latency_ms != null ? l.latency_ms + 'ms' : '—'}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">${l.cache_hit ? `<span class="pill closed">${l.cache_type}</span>` : '<span class="font-code-sm text-outline">miss</span>'}</td>
+        <td class="px-4 py-3 font-code-sm border-b border-outline-variant/40">$${(l.cost_usd || 0).toFixed(6)}</td>
+      </tr>`).join('') || `<tr><td class="px-4 py-3 font-body-sm text-on-surface-variant" colspan="5">No requests yet — try the Playground.</td></tr>`;
+  } catch (e) {
+    nrHandleError(e, 'Could not refresh dashboard');
+  }
+}
+
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>

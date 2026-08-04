@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>NeuroRouter | Playground</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex">
+
+<aside class="sidebar fixed left-0 top-0 h-full bg-surface-container-low border-r border-outline-variant flex flex-col p-4 gap-1 z-50 custom-scrollbar" style="overflow-y:auto">
+  <div class="mb-6 px-2">
+    <h1 class="text-primary font-bold" style="font-size:22px">NeuroRouter</h1>
+    <p class="font-body-sm text-on-surface-variant" style="opacity:.7">AI Gateway Platform</p>
+  </div>
+  <nav id="nr-nav" class="flex-1 flex flex-col gap-1"></nav>
+  <div class="pt-4 border-t border-outline-variant mt-4 px-2">
+    <div id="nr-conn-status" class="flex items-center gap-2 font-body-sm py-2"></div>
+  </div>
+</aside>
+
+<main class="main-with-sidebar flex-1 min-h-screen flex flex-col" style="height:100vh">
+  <header class="h-14 border-b border-outline-variant flex items-center justify-between px-6 bg-surface-dim shrink-0">
+    <h2 class="font-title">Playground</h2>
+    <label class="flex items-center gap-2 font-body-sm text-on-surface-variant">
+      <input id="use-cache-toggle" type="checkbox" checked style="accent-color:#c0c1ff" />
+      Use cache
+    </label>
+  </header>
+
+  <div class="flex-1 flex overflow-hidden">
+    <!-- Conversation -->
+    <section class="flex-1 flex flex-col border-r border-outline-variant overflow-hidden">
+      <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar"></div>
+
+      <div class="p-4 bg-surface-container-low border-t border-outline-variant">
+        <div class="flex items-center gap-3 mb-3">
+          <select id="model-select" class="field-input" style="width:220px">
+            <option value="auto">Auto (complexity routing)</option>
+            <option value="simple">Force: simple tier</option>
+            <option value="medium">Force: medium tier</option>
+            <option value="complex">Force: complex tier</option>
+          </select>
+          <span id="last-metrics" class="font-code-sm text-on-surface-variant"></span>
+        </div>
+        <div class="relative">
+          <textarea id="prompt-input" class="field-input" style="min-height:90px;resize:none;padding-right:110px"
+            placeholder="Enter your prompt... (Ctrl+Enter to send)"></textarea>
+          <button id="send-btn" class="btn-primary" style="position:absolute;bottom:12px;right:12px">
+            <span class="material-symbols-outlined" style="font-size:16px;vertical-align:-3px">send</span> Send
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Parameters -->
+    <aside class="bg-surface-container-low p-6 space-y-6 overflow-y-auto custom-scrollbar" style="width:300px">
+      <div>
+        <h3 class="font-label-caps text-on-surface-variant mb-4 pb-2 border-b border-outline-variant">Model Parameters</h3>
+        <div class="space-y-6">
+          <div>
+            <div class="flex justify-between mb-2">
+              <label class="font-body-sm font-bold">Temperature</label>
+              <span id="temp-val" class="font-code-sm text-secondary bg-surface-container px-2 py-0.5 rounded border border-outline-variant">0.7</span>
+            </div>
+            <input id="temp-slider" type="range" min="0" max="100" value="70" class="w-full" style="accent-color:#c0c1ff" />
+          </div>
+          <div>
+            <div class="flex justify-between mb-2">
+              <label class="font-body-sm font-bold">Max Tokens</label>
+              <span id="tokens-val" class="font-code-sm text-secondary bg-surface-container px-2 py-0.5 rounded border border-outline-variant">1024</span>
+            </div>
+            <input id="tokens-slider" type="range" min="16" max="4096" value="1024" class="w-full" style="accent-color:#c0c1ff" />
+          </div>
+        </div>
+      </div>
+
+      <div class="pt-4 border-t border-outline-variant">
+        <h3 class="font-label-caps text-on-surface-variant mb-3">Provider Health</h3>
+        <div id="provider-health" class="space-y-2 font-body-sm"></div>
+      </div>
+
+      <div class="pt-4 border-t border-outline-variant">
+        <div class="bg-primary-container/10 border border-primary rounded-xl p-4 text-center" style="border-color:#8083ff;background:rgba(128,131,255,.06)">
+          <p class="font-body-sm text-on-surface-variant mb-1">Last Query Cost</p>
+          <p id="last-cost" class="font-display text-primary">—</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script src="assets/api.js"></script>
+<script>
+nrRenderNav('playground');
+
+const messages = [];
+const chatContainer = document.getElementById('chat-container');
+const tempSlider = document.getElementById('temp-slider');
+const tokensSlider = document.getElementById('tokens-slider');
+const tempVal = document.getElementById('temp-val');
+const tokensVal = document.getElementById('tokens-val');
+const promptInput = document.getElementById('prompt-input');
+const sendBtn = document.getElementById('send-btn');
+const modelSelect = document.getElementById('model-select');
+const useCacheToggle = document.getElementById('use-cache-toggle');
+
+tempSlider.addEventListener('input', () => tempVal.textContent = (tempSlider.value / 100).toFixed(1));
+tokensSlider.addEventListener('input', () => tokensVal.textContent = tokensSlider.value);
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function bubble(role, content, routing) {
+  if (role === 'user') {
+    return `
+      <div class="flex gap-3 max-w-3xl">
+        <div class="w-8 h-8 rounded-lg bg-surface-container-highest flex items-center justify-center shrink-0 border border-outline-variant">
+          <span class="material-symbols-outlined text-sm">person</span>
+        </div>
+        <p class="pt-1 whitespace-pre-wrap">${escapeHtml(content)}</p>
+      </div>`;
+  }
+  const metaChips = routing ? `
+    <div class="flex flex-wrap items-center gap-2 mb-3">
+      <span class="bg-surface-container-high border border-outline-variant px-2 py-1 rounded font-code-sm flex items-center gap-2">
+        <span class="pulse-dot" style="background:#4edea3"></span>
+        Routed to <span class="text-secondary font-bold">${routing.provider_used}/${routing.model_used}</span>
+      </span>
+      <span class="font-code-sm text-on-surface-variant italic" style="opacity:.75">Tier: ${routing.complexity} (score ${routing.complexity_score})</span>
+      ${routing.cache_hit ? `<span class="bg-surface-container-low border border-outline-variant px-2 py-1 rounded font-code-sm">Cache hit (${routing.cache_type}${routing.similarity ? ', ' + Math.round(routing.similarity*100) + '%' : ''})</span>` : ''}
+      ${routing.fallback_used ? `<span class="pill warn">Fallback used</span>` : ''}
+    </div>` : '';
+
+  return `
+    <div class="flex gap-3 max-w-3xl">
+      <div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center shrink-0">
+        <span class="material-symbols-outlined text-on-primary-container text-sm">hub</span>
+      </div>
+      <div class="flex-1">
+        ${metaChips}
+        <div class="bg-surface-container border border-outline-variant rounded-xl p-4">
+          <p class="whitespace-pre-wrap leading-relaxed">${escapeHtml(content)}</p>
+        </div>
+        ${routing ? `
+        <div class="flex gap-6 mt-3 font-code-sm text-on-surface-variant">
+          <span>Latency: <b class="text-on-surface">${routing.latency_ms}ms</b></span>
+          <span>Cost: <b class="text-on-surface">$${routing.estimated_cost_usd.toFixed(8)}</b></span>
+          <span>Attempts: <b class="text-on-surface">${routing.attempts}</b></span>
+        </div>` : ''}
+      </div>
+    </div>`;
+}
+
+function render() {
+  chatContainer.innerHTML = messages.map(m => bubble(m.role, m.content, m.routing)).join('');
+  chatContainer.scrollTop = chatContainer.scrollHeight;
+}
+
+function errorBubble(text) {
+  return `<div class="max-w-3xl bg-error/10 border border-error rounded-xl p-4 font-body-sm" style="border-color:#ffb4ab;background:rgba(255,180,171,.08);color:#ffb4ab">${escapeHtml(text)}</div>`;
+}
+
+async function send() {
+  const text = promptInput.value.trim();
+  if (!text) return;
+
+  messages.push({ role: 'user', content: text });
+  render();
+  promptInput.value = '';
+  sendBtn.disabled = true;
+
+  try {
+    const resp = await NR.chatCompletion({
+      model: modelSelect.value,
+      messages: messages.map(m => ({ role: m.role, content: m.content })),
+      temperature: tempSlider.value / 100,
+      max_tokens: parseInt(tokensSlider.value, 10),
+      use_cache: useCacheToggle.checked,
+    });
+    const content = resp.choices[0].message.content;
+    messages.push({ role: 'assistant', content, routing: resp.routing });
+    render();
+    document.getElementById('last-metrics').textContent =
+      `${resp.routing.latency_ms}ms · ${resp.usage.total_tokens} tokens · $${resp.routing.estimated_cost_usd.toFixed(8)}`;
+    document.getElementById('last-cost').textContent = `$${resp.routing.estimated_cost_usd.toFixed(6)}`;
+  } catch (e) {
+    chatContainer.insertAdjacentHTML('beforeend', errorBubble(e.message));
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+    nrHandleError(e, 'Request failed');
+  } finally {
+    sendBtn.disabled = false;
+  }
+}
+
+sendBtn.addEventListener('click', send);
+promptInput.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.key === 'Enter') send();
+});
+
+async function loadProviderHealth() {
+  try {
+    const models = await NR.getModels();
+    const el = document.getElementById('provider-health');
+    el.innerHTML = Object.values(models.circuit_breakers).map(b => `
+      <div class="flex justify-between items-center">
+        <span>${b.provider}</span>
+        <span class="pill ${b.disabled_by_admin ? 'disabled' : b.state}">${b.disabled_by_admin ? 'disabled' : b.state.replace('_',' ')}</span>
+      </div>`).join('');
+  } catch (e) { /* connection status pill already reflects this */ }
+}
+loadProviderHealth();
+setInterval(loadProviderHealth, 8000);
+
+// Welcome message
+messages.push({
+  role: 'assistant',
+  content: "Hi! I'm NeuroRouter's playground. Send a prompt below — I'll classify its complexity, route it to the right model tier, and show you exactly what happened (cache hit, provider, cost, latency). Try asking something trivial, then something that needs real reasoning, to see the routing tier change.",
+});
+render();
+</script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>NeuroRouter | Settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex">
+
+<aside class="sidebar fixed left-0 top-0 h-full bg-surface-container-low border-r border-outline-variant flex flex-col p-4 gap-1 z-50 custom-scrollbar" style="overflow-y:auto">
+  <div class="mb-6 px-2">
+    <h1 class="text-primary font-bold" style="font-size:22px">NeuroRouter</h1>
+    <p class="font-body-sm text-on-surface-variant" style="opacity:.7">AI Gateway Platform</p>
+  </div>
+  <nav id="nr-nav" class="flex-1 flex flex-col gap-1"></nav>
+  <div class="pt-4 border-t border-outline-variant mt-4 px-2">
+    <div id="nr-conn-status" class="flex items-center gap-2 font-body-sm py-2"></div>
+  </div>
+</aside>
+
+<main class="main-with-sidebar flex-1 min-h-screen">
+  <header class="h-14 border-b border-outline-variant flex items-center px-6 bg-surface-dim sticky top-0 z-40">
+    <h2 class="font-title">Settings</h2>
+  </header>
+
+  <div class="p-6 space-y-8" style="max-width:640px">
+    <section class="glass-card rounded-xl p-5">
+      <h3 class="font-label-caps text-on-surface-variant mb-1">This browser session</h3>
+      <p class="font-body-sm text-on-surface-variant mb-4" style="opacity:.8">
+        Stored locally in this browser only — used to authenticate the Playground and admin pages.
+      </p>
+      <div class="space-y-4">
+        <div>
+          <label class="font-body-sm font-bold block mb-1">API Key</label>
+          <input id="api-key-input" class="field-input" placeholder="dev-key-123" />
+        </div>
+        <div>
+          <label class="font-body-sm font-bold block mb-1">Admin Token</label>
+          <input id="admin-token-input" type="password" class="field-input" placeholder="admin-dev-token" />
+        </div>
+        <div>
+          <label class="font-body-sm font-bold block mb-1">API Base URL <span class="font-body-sm text-on-surface-variant" style="font-weight:400">(advanced — leave blank for same-origin)</span></label>
+          <input id="base-url-input" class="field-input" placeholder="http://localhost:8000" />
+        </div>
+        <button class="btn-primary" onclick="saveLocal()">Save</button>
+      </div>
+    </section>
+
+    <section class="glass-card rounded-xl p-5">
+      <div class="flex justify-between items-center mb-1">
+        <h3 class="font-label-caps text-on-surface-variant">Live Gateway Configuration</h3>
+      </div>
+      <p class="font-body-sm text-on-surface-variant mb-4" style="opacity:.8">
+        Changes apply to new requests within ~2 seconds — no restart needed. Requires the admin token above.
+      </p>
+      <div id="config-form" class="space-y-4"></div>
+      <div class="flex gap-3 mt-5">
+        <button class="btn-primary" onclick="saveConfig()">Save Configuration</button>
+        <button class="btn-secondary" onclick="resetConfig()">Reset to Defaults</button>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="assets/api.js"></script>
+<script>
+nrRenderNav('settings');
+
+document.getElementById('api-key-input').value = NR.apiKey();
+document.getElementById('admin-token-input').value = NR.adminToken();
+document.getElementById('base-url-input').value = NR.baseUrl();
+
+function saveLocal() {
+  NR.setApiKey(document.getElementById('api-key-input').value.trim());
+  NR.setAdminToken(document.getElementById('admin-token-input').value.trim());
+  NR.setBaseUrl(document.getElementById('base-url-input').value.trim());
+  nrToast('Session settings saved', 'success');
+}
+
+const FIELDS = [
+  { key: 'rate_limit_requests', label: 'Rate limit — requests', help: 'Max requests per API key per window' },
+  { key: 'rate_limit_window_seconds', label: 'Rate limit — window (seconds)' },
+  { key: 'cache_ttl_seconds', label: 'Exact cache TTL (seconds)' },
+  { key: 'semantic_cache_threshold', label: 'Semantic cache similarity threshold', step: '0.01', help: '0.0–1.0, higher = stricter match' },
+  { key: 'semantic_cache_max_entries', label: 'Semantic cache max entries' },
+  { key: 'circuit_failure_threshold', label: 'Circuit breaker — failure threshold' },
+  { key: 'circuit_recovery_seconds', label: 'Circuit breaker — recovery window (seconds)' },
+];
+
+async function loadConfig() {
+  try {
+    const cfg = await NR.getConfig();
+    document.getElementById('config-form').innerHTML = FIELDS.map(f => `
+      <div>
+        <label class="font-body-sm font-bold block mb-1">${f.label}</label>
+        <input id="cfg-${f.key}" class="field-input" type="number" step="${f.step || '1'}" value="${cfg[f.key]}" />
+        ${f.help ? `<p class="font-body-sm text-on-surface-variant mt-1" style="opacity:.7">${f.help}</p>` : ''}
+      </div>`).join('');
+  } catch (e) {
+    document.getElementById('config-form').innerHTML =
+      `<p class="font-body-sm" style="color:#ffb4ab">Could not load config — check your admin token above and reload.</p>`;
+  }
+}
+
+async function saveConfig() {
+  const values = {};
+  FIELDS.forEach(f => {
+    const el = document.getElementById(`cfg-${f.key}`);
+    if (el) values[f.key] = parseFloat(el.value);
+  });
+  try {
+    await NR.updateConfig(values);
+    nrToast('Gateway configuration updated', 'success');
+    loadConfig();
+  } catch (e) {
+    nrHandleError(e, 'Failed to update config (check admin token)');
+  }
+}
+
+async function resetConfig() {
+  if (!confirm('Reset all runtime config to .env defaults?')) return;
+  try {
+    await NR.resetConfig();
+    nrToast('Configuration reset to defaults', 'success');
+    loadConfig();
+  } catch (e) {
+    nrHandleError(e, 'Failed to reset config (check admin token)');
+  }
+}
+
+loadConfig();
+</script>
+</body>
+</html>

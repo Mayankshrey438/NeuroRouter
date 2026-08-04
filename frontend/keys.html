@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>NeuroRouter | API Keys</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex">
+
+<aside class="sidebar fixed left-0 top-0 h-full bg-surface-container-low border-r border-outline-variant flex flex-col p-4 gap-1 z-50 custom-scrollbar" style="overflow-y:auto">
+  <div class="mb-6 px-2">
+    <h1 class="text-primary font-bold" style="font-size:22px">NeuroRouter</h1>
+    <p class="font-body-sm text-on-surface-variant" style="opacity:.7">AI Gateway Platform</p>
+  </div>
+  <nav id="nr-nav" class="flex-1 flex flex-col gap-1"></nav>
+  <div class="pt-4 border-t border-outline-variant mt-4 px-2">
+    <div id="nr-conn-status" class="flex items-center gap-2 font-body-sm py-2"></div>
+  </div>
+</aside>
+
+<main class="main-with-sidebar flex-1 min-h-screen">
+  <header class="h-14 border-b border-outline-variant flex items-center justify-between px-6 bg-surface-dim sticky top-0 z-40">
+    <h2 class="font-title">API Key Management</h2>
+    <div class="flex items-center gap-2">
+      <span class="font-body-sm text-on-surface-variant">Admin token</span>
+      <input id="admin-token-input" type="password" class="field-input" style="width:200px;padding:6px 10px" placeholder="X-Admin-Token" />
+    </div>
+  </header>
+
+  <div class="p-6 space-y-6">
+    <div class="glass-card rounded-xl p-5">
+      <h3 class="font-label-caps text-on-surface-variant mb-3">Create a new key</h3>
+      <div class="flex gap-3">
+        <input id="new-key-name" class="field-input" placeholder="Key name (e.g. Production Backend)" />
+        <button class="btn-primary" onclick="createKey()">Generate Key</button>
+      </div>
+    </div>
+
+    <div id="reveal-box" style="display:none" class="glass-card rounded-xl p-5" style="border-color:#4edea3">
+      <div class="flex justify-between items-center mb-2">
+        <h3 class="font-label-caps text-secondary">New key created — copy it now, it won't be shown again</h3>
+        <button onclick="document.getElementById('reveal-box').style.display='none'" class="text-on-surface-variant"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <div class="flex items-center gap-2">
+        <code id="reveal-key" class="font-code-sm bg-surface-container-lowest border border-outline-variant rounded-lg px-3 py-2 flex-1"></code>
+        <button class="btn-secondary" onclick="copyRevealedKey()">Copy</button>
+      </div>
+    </div>
+
+    <div class="glass-card rounded-xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left font-body-sm">
+          <thead class="bg-surface-container-low font-label-caps text-on-surface-variant">
+            <tr>
+              <th class="px-4 py-3 border-b border-outline-variant">NAME</th>
+              <th class="px-4 py-3 border-b border-outline-variant">KEY</th>
+              <th class="px-4 py-3 border-b border-outline-variant">CREATED</th>
+              <th class="px-4 py-3 border-b border-outline-variant">LAST USED</th>
+              <th class="px-4 py-3 border-b border-outline-variant">REQUESTS</th>
+              <th class="px-4 py-3 border-b border-outline-variant">STATUS</th>
+              <th class="px-4 py-3 border-b border-outline-variant"></th>
+            </tr>
+          </thead>
+          <tbody id="key-rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="assets/api.js"></script>
+<script>
+nrRenderNav('keys');
+
+const adminInput = document.getElementById('admin-token-input');
+adminInput.value = NR.adminToken();
+adminInput.addEventListener('change', () => NR.setAdminToken(adminInput.value));
+
+function fmtDate(ts) { return ts ? new Date(ts * 1000).toLocaleString() : '—'; }
+
+async function load() {
+  try {
+    const resp = await NR.listKeys();
+    document.getElementById('key-rows').innerHTML = resp.keys.map(k => `
+      <tr class="hover:bg-surface-container-high transition-colors">
+        <td class="px-4 py-3 border-b border-outline-variant/40 font-bold">${k.name}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40 font-code-sm text-primary" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${k.key}">${k.key}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40 font-code-sm">${fmtDate(k.created_at)}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40 font-code-sm">${fmtDate(k.last_used_at)}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">${k.request_count}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">${k.revoked ? '<span class="pill error">revoked</span>' : '<span class="pill closed">active</span>'}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">
+          ${k.revoked ? '' : `<button class="btn-danger" onclick="revokeKey('${k.key}')">Revoke</button>`}
+        </td>
+      </tr>`).join('') || `<tr><td class="px-4 py-3 font-body-sm text-on-surface-variant" colspan="7">No keys yet.</td></tr>`;
+  } catch (e) {
+    nrHandleError(e, 'Could not load keys (check admin token)');
+  }
+}
+
+async function createKey() {
+  const name = document.getElementById('new-key-name').value.trim();
+  if (!name) { nrToast('Give the key a name first', 'error'); return; }
+  try {
+    const record = await NR.createKey(name);
+    document.getElementById('reveal-key').textContent = record.key;
+    document.getElementById('reveal-box').style.display = 'block';
+    document.getElementById('new-key-name').value = '';
+    load();
+  } catch (e) {
+    nrHandleError(e, 'Failed to create key (check admin token)');
+  }
+}
+
+function copyRevealedKey() {
+  const text = document.getElementById('reveal-key').textContent;
+  navigator.clipboard.writeText(text).then(() => nrToast('Copied to clipboard', 'success'));
+}
+
+async function revokeKey(fullKey) {
+  if (!confirm('Revoke this key? Any client using it will immediately get 401s.')) return;
+  try {
+    await NR.revokeKey(fullKey);
+    nrToast('Key revoked', 'success');
+    load();
+  } catch (e) {
+    nrHandleError(e, 'Could not revoke key (check admin token)');
+  }
+}
+
+load();
+</script>
+</body>
+</html>

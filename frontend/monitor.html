@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>NeuroRouter | Live Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex">
+
+<aside class="sidebar fixed left-0 top-0 h-full bg-surface-container-low border-r border-outline-variant flex flex-col p-4 gap-1 z-50 custom-scrollbar" style="overflow-y:auto">
+  <div class="mb-6 px-2">
+    <h1 class="text-primary font-bold" style="font-size:22px">NeuroRouter</h1>
+    <p class="font-body-sm text-on-surface-variant" style="opacity:.7">AI Gateway Platform</p>
+  </div>
+  <nav id="nr-nav" class="flex-1 flex flex-col gap-1"></nav>
+  <div class="pt-4 border-t border-outline-variant mt-4 px-2">
+    <div id="nr-conn-status" class="flex items-center gap-2 font-body-sm py-2"></div>
+  </div>
+</aside>
+
+<main class="main-with-sidebar flex-1 min-h-screen">
+  <header class="h-14 border-b border-outline-variant flex items-center justify-between px-6 bg-surface-dim sticky top-0 z-40">
+    <h2 class="font-title">Live Request Monitor</h2>
+    <label class="flex items-center gap-2 font-body-sm text-on-surface-variant">
+      <input id="live-toggle" type="checkbox" checked style="accent-color:#c0c1ff" /> Live (2s refresh)
+    </label>
+  </header>
+
+  <div class="p-6">
+    <div class="glass-card rounded-xl overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left font-body-sm">
+          <thead class="bg-surface-container-low font-label-caps text-on-surface-variant">
+            <tr>
+              <th class="px-4 py-3 border-b border-outline-variant">TIME</th>
+              <th class="px-4 py-3 border-b border-outline-variant">TRACE ID</th>
+              <th class="px-4 py-3 border-b border-outline-variant">TIER</th>
+              <th class="px-4 py-3 border-b border-outline-variant">PROVIDER / MODEL</th>
+              <th class="px-4 py-3 border-b border-outline-variant">LATENCY</th>
+              <th class="px-4 py-3 border-b border-outline-variant">CACHE</th>
+              <th class="px-4 py-3 border-b border-outline-variant">COST</th>
+              <th class="px-4 py-3 border-b border-outline-variant">STATUS</th>
+            </tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- Trace detail modal -->
+<div id="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200" onclick="closeModal(event)">
+  <div class="glass-card rounded-xl" style="max-width:600px;margin:60px auto;padding:24px" onclick="event.stopPropagation()">
+    <div class="flex justify-between items-start mb-4">
+      <h3 class="font-title" id="modal-title" style="font-size:16px">Trace Detail</h3>
+      <button onclick="closeModal()" class="text-on-surface-variant hover:text-on-surface">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div id="modal-body" class="space-y-3 font-body-sm"></div>
+  </div>
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+nrRenderNav('monitor');
+
+const liveToggle = document.getElementById('live-toggle');
+
+function timeAgo(ts) {
+  const s = Math.floor(Date.now() / 1000 - ts);
+  if (s < 60) return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  return `${Math.floor(s / 3600)}h ago`;
+}
+
+function statusPill(entry) {
+  if (entry.level === 'error') return `<span class="pill error">${entry.status || 'error'}</span>`;
+  if (entry.level === 'warn') return `<span class="pill warn">${entry.status || 'warn'}</span>`;
+  return `<span class="pill closed">${entry.status || 'ok'}</span>`;
+}
+
+let cache = {};
+
+async function load() {
+  try {
+    const resp = await NR.getLogs({ limit: 50, type: 'request' });
+    cache = {};
+    document.getElementById('rows').innerHTML = resp.logs.map(l => {
+      cache[l.id] = l;
+      return `
+      <tr class="hover:bg-surface-container-high transition-colors cursor-pointer" onclick="openModal('${l.id}')">
+        <td class="px-4 py-3 font-code-sm text-outline border-b border-outline-variant/40">${timeAgo(l.ts)}</td>
+        <td class="px-4 py-3 font-code-sm text-primary border-b border-outline-variant/40">${l.id}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">${l.tier || '—'}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">${l.provider || '—'}/${l.model || '—'}</td>
+        <td class="px-4 py-3 font-bold border-b border-outline-variant/40">${l.latency_ms != null ? l.latency_ms + 'ms' : '—'}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">${l.cache_hit ? `<span class="pill closed">${l.cache_type}</span>` : '<span class="font-code-sm text-outline">miss</span>'}</td>
+        <td class="px-4 py-3 font-code-sm border-b border-outline-variant/40">$${(l.cost_usd || 0).toFixed(6)}</td>
+        <td class="px-4 py-3 border-b border-outline-variant/40">${statusPill(l)}</td>
+      </tr>`;
+    }).join('') || `<tr><td class="px-4 py-3 font-body-sm text-on-surface-variant" colspan="8">No requests yet — try the Playground.</td></tr>`;
+  } catch (e) {
+    nrHandleError(e, 'Could not load live monitor');
+  }
+}
+
+function openModal(id) {
+  const l = cache[id];
+  if (!l) return;
+  document.getElementById('modal-title').textContent = `Trace ${l.id}`;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="grid grid-cols-2 gap-3">
+      <div><div class="text-on-surface-variant font-label-caps">Tier</div><div>${l.tier || '—'}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Provider/Model</div><div>${l.provider || '—'}/${l.model || '—'}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Latency</div><div>${l.latency_ms != null ? l.latency_ms + 'ms' : '—'}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Cost</div><div class="font-code-sm">$${(l.cost_usd || 0).toFixed(8)}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Cache</div><div>${l.cache_hit ? l.cache_type + ' hit' : 'miss'}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Status</div><div>${statusPill(l)}</div></div>
+    </div>
+    <div class="pt-3 border-t border-outline-variant">
+      <div class="text-on-surface-variant font-label-caps mb-1">Prompt (preview)</div>
+      <div class="bg-surface-container-lowest border-l-2 rounded p-3 font-code-sm" style="border-color:#8083ff">${(l.prompt_preview || '—').replace(/</g,'&lt;')}</div>
+    </div>
+    <div>
+      <div class="text-on-surface-variant font-label-caps mb-1">Response (preview)</div>
+      <div class="bg-surface-container-lowest border-l-2 rounded p-3 font-code-sm" style="border-color:#4edea3">${(l.response_preview || '—').replace(/</g,'&lt;')}</div>
+    </div>
+  `;
+  document.getElementById('modal-backdrop').style.display = 'block';
+}
+function closeModal(e) { document.getElementById('modal-backdrop').style.display = 'none'; }
+
+// support deep-linking from other pages: monitor.html?trace=chatcmpl-xxx
+const params = new URLSearchParams(location.search);
+if (params.get('trace')) {
+  NR.getTrace(params.get('trace')).then(entry => { cache[entry.id] = entry; openModal(entry.id); }).catch(() => {});
+}
+
+load();
+setInterval(() => { if (liveToggle.checked) load(); }, 2000);
+</script>
+</body>
+</html>

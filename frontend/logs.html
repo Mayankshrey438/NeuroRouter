@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>NeuroRouter | System Logs</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="assets/style.css" rel="stylesheet"/>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex">
+
+<aside class="sidebar fixed left-0 top-0 h-full bg-surface-container-low border-r border-outline-variant flex flex-col p-4 gap-1 z-50 custom-scrollbar" style="overflow-y:auto">
+  <div class="mb-6 px-2">
+    <h1 class="text-primary font-bold" style="font-size:22px">NeuroRouter</h1>
+    <p class="font-body-sm text-on-surface-variant" style="opacity:.7">AI Gateway Platform</p>
+  </div>
+  <nav id="nr-nav" class="flex-1 flex flex-col gap-1"></nav>
+  <div class="pt-4 border-t border-outline-variant mt-4 px-2">
+    <div id="nr-conn-status" class="flex items-center gap-2 font-body-sm py-2"></div>
+  </div>
+</aside>
+
+<main class="main-with-sidebar flex-1 min-h-screen">
+  <header class="h-14 border-b border-outline-variant flex items-center justify-between px-6 bg-surface-dim sticky top-0 z-40 flex-wrap gap-2">
+    <h2 class="font-title">System Logs</h2>
+    <div class="flex items-center gap-2">
+      <div id="level-filter" class="flex bg-surface-container rounded-lg p-1 gap-1">
+        <button class="lvl-btn px-3 py-1 rounded font-body-sm" data-level="">All</button>
+        <button class="lvl-btn px-3 py-1 rounded font-body-sm" data-level="info">Info</button>
+        <button class="lvl-btn px-3 py-1 rounded font-body-sm" data-level="warn">Warn</button>
+        <button class="lvl-btn px-3 py-1 rounded font-body-sm" data-level="error">Error</button>
+      </div>
+      <select id="type-filter" class="field-input" style="width:170px;padding:6px 10px">
+        <option value="">All event types</option>
+        <option value="request">request</option>
+        <option value="provider_error">provider_error</option>
+        <option value="circuit_trip">circuit_trip</option>
+        <option value="rate_limit">rate_limit</option>
+        <option value="auth_fail">auth_fail</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="p-6">
+    <div id="log-stream" class="glass-card rounded-xl p-2 font-code-sm space-y-1 custom-scrollbar" style="max-height:75vh;overflow-y:auto"></div>
+  </div>
+</main>
+
+<div id="modal-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200" onclick="closeModal(event)">
+  <div class="glass-card rounded-xl" style="max-width:600px;margin:60px auto;padding:24px" onclick="event.stopPropagation()">
+    <div class="flex justify-between items-start mb-4">
+      <h3 class="font-title" id="modal-title" style="font-size:16px">Trace Detail</h3>
+      <button onclick="closeModal()" class="text-on-surface-variant hover:text-on-surface">
+        <span class="material-symbols-outlined">close</span>
+      </button>
+    </div>
+    <div id="modal-body" class="space-y-3 font-body-sm"></div>
+  </div>
+</div>
+
+<script src="assets/api.js"></script>
+<script>
+nrRenderNav('logs');
+
+let level = '';
+let type = '';
+
+document.querySelectorAll('.lvl-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    level = btn.dataset.level;
+    document.querySelectorAll('.lvl-btn').forEach(b => b.classList.remove('bg-primary-container'));
+    btn.classList.add('bg-primary-container');
+    load();
+  });
+});
+document.querySelector('.lvl-btn[data-level=""]').classList.add('bg-primary-container');
+
+document.getElementById('type-filter').addEventListener('change', (e) => { type = e.target.value; load(); });
+
+const levelColor = { info: '#4edea3', warn: '#ffb95f', error: '#ffb4ab' };
+
+function line(l) {
+  const t = new Date(l.ts * 1000).toLocaleTimeString();
+  const color = levelColor[l.level] || '#c7c4d7';
+  const clickable = l.type === 'request';
+  return `<div class="px-3 py-2 rounded hover:bg-surface-container-high ${clickable ? 'cursor-pointer' : ''}"
+               ${clickable ? `onclick="location.href='logs.html?trace=${encodeURIComponent(l.id)}'"` : ''}>
+    <span style="color:#908fa0">${t}</span>
+    <span style="color:${color};font-weight:700;text-transform:uppercase;margin:0 8px">${l.level}</span>
+    <span style="color:#c0c1ff">[${l.type}]</span>
+    <span>${(l.message || '').replace(/</g,'&lt;')}</span>
+    ${l.api_key_name ? `<span style="color:#908fa0"> · key: ${l.api_key_name}</span>` : ''}
+  </div>`;
+}
+
+async function load() {
+  try {
+    const resp = await NR.getLogs({ limit: 200, level, type });
+    document.getElementById('log-stream').innerHTML = resp.logs.map(line).join('')
+      || '<div class="px-3 py-4 text-on-surface-variant">No log entries match this filter yet.</div>';
+  } catch (e) {
+    nrHandleError(e, 'Could not load logs');
+  }
+}
+
+function openModal(l) {
+  document.getElementById('modal-title').textContent = `Trace ${l.id}`;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="grid grid-cols-2 gap-3">
+      <div><div class="text-on-surface-variant font-label-caps">Tier</div><div>${l.tier || '—'}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Provider/Model</div><div>${l.provider || '—'}/${l.model || '—'}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Latency</div><div>${l.latency_ms != null ? l.latency_ms + 'ms' : '—'}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Cost</div><div class="font-code-sm">$${(l.cost_usd || 0).toFixed(8)}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Cache</div><div>${l.cache_hit ? l.cache_type + ' hit' : 'miss'}</div></div>
+      <div><div class="text-on-surface-variant font-label-caps">Status</div><div>${l.status || '—'}</div></div>
+    </div>
+    <div class="pt-3 border-t border-outline-variant">
+      <div class="text-on-surface-variant font-label-caps mb-1">Prompt (preview)</div>
+      <div class="bg-surface-container-lowest border-l-2 rounded p-3 font-code-sm" style="border-color:#8083ff">${(l.prompt_preview || '—').replace(/</g,'&lt;')}</div>
+    </div>
+    <div>
+      <div class="text-on-surface-variant font-label-caps mb-1">Response (preview)</div>
+      <div class="bg-surface-container-lowest border-l-2 rounded p-3 font-code-sm" style="border-color:#4edea3">${(l.response_preview || '—').replace(/</g,'&lt;')}</div>
+    </div>
+  `;
+  document.getElementById('modal-backdrop').style.display = 'block';
+}
+function closeModal(e) { document.getElementById('modal-backdrop').style.display = 'none'; }
+
+// Deep link support: logs.html?trace=chatcmpl-xxx opens that entry's detail
+async function checkDeepLink() {
+  const params = new URLSearchParams(location.search);
+  const traceId = params.get('trace');
+  if (!traceId) return;
+  try {
+    const entry = await NR.getTrace(traceId);
+    openModal(entry);
+  } catch (e) { /* trace may have aged out of the log window */ }
+}
+
+load();
+checkDeepLink();
+setInterval(load, 4000);
+</script>
+</body>
+</html>
