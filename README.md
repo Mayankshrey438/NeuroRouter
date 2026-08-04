@@ -1,13 +1,13 @@
 # 🧠 NeuroRouter
 
-**An LLM Gateway / Model Router** — a single API in front of your LLM providers that
+**An LLM Gateway / Model Router**  a single API in front of your LLM providers that
 automatically classifies request complexity, routes to the cheapest model that can
 handle it, caches semantically similar requests, and fails over gracefully when a
 provider goes down.
 
 Built as a portfolio project to demonstrate backend engineering depth (rate limiting,
 circuit breakers, caching, fallback chains) layered with a lightweight ML component
-(a complexity classifier) — full-stack + AI, in a repo you can actually run end to end.
+(a complexity classifier)  full-stack + AI, in a repo you can actually run end to end.
 
 Runs with **zero API keys** out of the box (via a built-in `MockProvider`), and upgrades
 to real LLM calls the moment you drop a free [Groq](https://console.groq.com) key into `.env`.
